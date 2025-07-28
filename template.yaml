@@ -1,0 +1,104 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: 'Broker Recommendations Crawler - SAM Application (Local Development)'
+
+Parameters:
+  ApiKeyParameter:
+    Type: String
+    Default: "dev-api-key-123"
+    Description: API key for endpoint protection
+  Environment:
+    Type: String
+    Default: "dev"
+    AllowedValues: [dev, prod]
+
+Globals:
+  Function:
+    Timeout: 900
+    MemorySize: 1024
+    Runtime: python3.9
+    Environment:
+      Variables:
+        API_KEY: !Ref ApiKeyParameter
+        ENVIRONMENT: !Ref Environment
+        # Local development - no Chrome layer needed
+        LOCAL_DEVELOPMENT: "true"
+
+Resources:
+  # Main recommendations function
+  RecommendationsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: handlers.lambda_handler
+      Description: "Crawl and analyze broker recommendations"
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /recommendations
+            Method: get
+            RestApiId: !Ref BrokerApi
+
+  # Health check function
+  HealthFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: handlers.health_check_handler
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /health
+            Method: get
+            RestApiId: !Ref BrokerApi
+
+  # Cleanup function
+  CleanupFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: handlers.cleanup_handler
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /cleanup
+            Method: post
+            RestApiId: !Ref BrokerApi
+        # Daily cleanup schedule
+        Schedule:
+          Type: Schedule
+          Properties:
+            Schedule: cron(0 2 * * ? *)
+            Enabled: true
+
+  # Stats function
+  StatsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: handlers.stats_handler
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /stats
+            Method: get
+            RestApiId: !Ref BrokerApi
+
+  # API Gateway
+  BrokerApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: !Ref Environment
+      Cors:
+        AllowMethods: "'GET,POST,OPTIONS'"
+        AllowHeaders: "'Content-Type,X-Api-Key'"
+        AllowOrigin: "'*'"
+
+Outputs:
+  ApiUrl:
+    Description: "API Gateway endpoint URL"
+    Value: !Sub "https://${BrokerApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/"
